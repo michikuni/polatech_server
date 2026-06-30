@@ -1,0 +1,15 @@
+-- =============================================================================
+-- V1__baseline.sql
+-- Baseline migration for the LAN-Only Attendance System.
+--
+-- This file intentionally contains NO business tables. Per the Feature-First
+-- build order, each feature owns its own migration, added when that feature is
+-- built (e.g. V2__create_admin.sql for the `auth` feature).
+--
+-- Purpose of this baseline:
+--   * Establishes `db/migration` as Flyway's managed location.
+--   * Fixes the versioning convention for the whole team:
+--       V<n>__<snake_case_description>.sql   (double underscore after the version)
+--   * Records version 1 in `flyway_schema_history` so every later migration
+--     builds on a known, validated starting point.
+-- =============================================================================

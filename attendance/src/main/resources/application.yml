@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: attendance
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/attendance?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:password}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: ${JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.flywaydb: ${LOG_LEVEL_FLYWAY:INFO}
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-please-32bytes-min}
+    expiration-seconds: ${JWT_EXPIRATION_SECONDS:28800}
+    issuer: ${JWT_ISSUER:attendance}
+
+app:
+  time-zone: ${APP_TIME_ZONE:Asia/Ho_Chi_Minh}
+  bootstrap:
+    admin:
+      username: ${ADMIN_USERNAME:admin}
+      password: ${ADMIN_PASSWORD:}
+  enrollment:
+    code-ttl-seconds: ${ENROLLMENT_CODE_TTL_SECONDS:600}
+    code-length: ${ENROLLMENT_CODE_LENGTH:10}

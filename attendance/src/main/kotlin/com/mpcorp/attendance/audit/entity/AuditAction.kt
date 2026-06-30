@@ -1,0 +1,13 @@
+package com.mpcorp.attendance.audit.entity
+
+enum class AuditAction {
+    ADMIN_LOGIN,
+    EMPLOYEE_CREATED,
+    EMPLOYEE_UPDATED,
+    EMPLOYEE_ACTIVE_CHANGED,
+    ENROLL_CODE_ISSUED,
+    DEVICE_ENROLLED,
+    DEVICE_REVOKED,
+    ATTENDANCE_RECORDED,
+    SIGNATURE_VERIFY_FAILED,
+}
