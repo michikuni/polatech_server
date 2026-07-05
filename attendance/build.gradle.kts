@@ -21,31 +21,17 @@ repositories {
 }
 
 dependencies {
-    // --- Web layer (Spring MVC, REST only — no view templates) ---
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
-
-    // --- Persistence: Spring Data JPA + MySQL driver ---
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     runtimeOnly("com.mysql:mysql-connector-j")
-
-    // --- Security: Spring Security (JWT, admin-only) ---
     implementation("org.springframework.boot:spring-boot-starter-security")
-
-    // --- Validation: Jakarta Bean Validation ---
     implementation("org.springframework.boot:spring-boot-starter-validation")
-
-    // --- Schema migration: Flyway (MySQL dialect) ---
-    // Spring Boot 4 split auto-configuration into per-technology modules;
-    // spring-boot-flyway provides FlywayAutoConfiguration (flyway-core alone is NOT enough).
     implementation("org.springframework.boot:spring-boot-flyway")
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-mysql")
-
-    // --- Kotlin support ---
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
-
-    // --- Test ---
+    implementation("org.apache.poi:poi-ooxml:5.3.0")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     testImplementation("org.springframework.boot:spring-boot-starter-validation-test")
@@ -70,7 +56,6 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
-// --- Coverage: spec requires >= 80% for common.crypto ---
 tasks.jacocoTestReport {
     dependsOn(tasks.test)
     reports {

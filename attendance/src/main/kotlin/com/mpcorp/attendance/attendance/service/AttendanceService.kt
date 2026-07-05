@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.nio.charset.StandardCharsets
 import java.time.Clock
 import java.time.Instant
+import java.time.ZoneId
 
 @Service
 class AttendanceService(
@@ -33,6 +34,7 @@ class AttendanceService(
     private val attendanceEventRepository: AttendanceEventRepository,
     private val attendanceMapper: AttendanceMapper,
     private val auditService: AuditService,
+    private val businessZone: ZoneId,
     private val clock: Clock,
 ) {
 
@@ -69,12 +71,19 @@ class AttendanceService(
             throw InvalidSignatureException("Attendance signature is invalid")
         }
 
-        // 4. Atomically claim the challenge (exactly-once; protects against replay/race).
+        // 4. Enforce check-in/check-out alternation within the business day: a
+        //    check-in is only allowed when the previous state is "checked out"
+        //    (last punch today is CHECK_OUT or there is none), and a check-out
+        //    only when there is an open check-in. Checked before consuming the
+        //    challenge so a rejected punch does not burn it.
+        assertValidTransition(device.employeeId, type, now)
+
+        // 5. Atomically claim the challenge (exactly-once; protects against replay/race).
         if (!challengeService.markConsumed(challenge.id!!, now)) {
             throw BusinessRuleException("Challenge already used")
         }
 
-        // 5. Record the event and mark the device as recently used.
+        // 6. Record the event and mark the device as recently used.
         val event = AttendanceEvent(
             employeeId = device.employeeId,
             deviceId = device.id!!,
@@ -95,6 +104,29 @@ class AttendanceService(
             ip = sourceIp,
         )
         return attendanceMapper.toResponse(saved)
+    }
+
+    /**
+     * Rejects a punch that would break the check-in → check-out alternation for
+     * the employee's current business day. Considers only events on or after the
+     * start of today (in [businessZone]); a fresh day always starts "checked out".
+     */
+    private fun assertValidTransition(employeeId: Long, type: AttendanceType, now: Instant) {
+        val startOfDay = now.atZone(businessZone).toLocalDate().atStartOfDay(businessZone).toInstant()
+        val lastType = attendanceEventRepository
+            .findFirstByEmployeeIdAndEventTimeGreaterThanEqualOrderByEventTimeDesc(employeeId, startOfDay)
+            ?.type
+        when (type) {
+            AttendanceType.CHECK_IN ->
+                if (lastType == AttendanceType.CHECK_IN) {
+                    throw BusinessRuleException("Đã check-in, cần check-out trước khi check-in lại")
+                }
+
+            AttendanceType.CHECK_OUT ->
+                if (lastType != AttendanceType.CHECK_IN) {
+                    throw BusinessRuleException("Chưa check-in, không thể check-out")
+                }
+        }
     }
 
     private fun AttendanceType.signedSuffix(): ByteArray = name.toByteArray(StandardCharsets.UTF_8)

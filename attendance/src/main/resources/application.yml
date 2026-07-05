@@ -40,6 +40,10 @@ security:
 
 app:
   time-zone: ${APP_TIME_ZONE:Asia/Ho_Chi_Minh}
+  auto-checkout:
+    # Daily sweep that closes still-open sessions. Cron is 6-field (sec min hour dom mon dow),
+    # evaluated in app.time-zone. Default: 23:59 every day.
+    cron: ${AUTO_CHECKOUT_CRON:0 59 23 * * *}
   bootstrap:
     admin:
       username: ${ADMIN_USERNAME:admin}

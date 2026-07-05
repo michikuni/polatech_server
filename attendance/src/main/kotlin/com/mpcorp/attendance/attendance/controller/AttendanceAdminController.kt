@@ -3,11 +3,16 @@ package com.mpcorp.attendance.attendance.controller
 import com.mpcorp.attendance.attendance.dto.AttendanceEventResponse
 import com.mpcorp.attendance.attendance.dto.DailySummaryResponse
 import com.mpcorp.attendance.attendance.service.AttendanceQueryService
+import com.mpcorp.attendance.attendance.service.AttendanceReportService
+import com.mpcorp.attendance.attendance.service.ReportPeriod
 import com.mpcorp.attendance.common.response.ApiResponse
 import com.mpcorp.attendance.common.response.PageResponse
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.data.domain.Pageable
 import org.springframework.data.web.PageableDefault
 import org.springframework.format.annotation.DateTimeFormat
+import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -20,6 +25,7 @@ import java.time.LocalDate
 @RequestMapping("/api/admin/attendance")
 class AttendanceAdminController(
     private val attendanceQueryService: AttendanceQueryService,
+    private val attendanceReportService: AttendanceReportService,
 ) {
 
     @GetMapping
@@ -37,4 +43,27 @@ class AttendanceAdminController(
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) date: LocalDate,
     ): ResponseEntity<ApiResponse<DailySummaryResponse>> =
         ResponseEntity.ok(ApiResponse.ok(attendanceQueryService.dailySummary(employeeId, date)))
+
+    /**
+     * Exports attendance punches to an .xlsx file. [period] (DAY/WEEK/MONTH) and
+     * [date] define the window; [employeeCodes] is a comma-separated officer-code
+     * list, or blank/absent to export every employee.
+     */
+    @GetMapping("/report")
+    fun report(
+        @RequestParam period: ReportPeriod,
+        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) date: LocalDate,
+        @RequestParam(required = false) employeeCodes: String?,
+    ): ResponseEntity<ByteArrayResource> {
+        val codes = employeeCodes
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+        val file = attendanceReportService.buildExcel(period, date, codes)
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"${file.filename}\"")
+            .body(ByteArrayResource(file.bytes))
+    }
 }

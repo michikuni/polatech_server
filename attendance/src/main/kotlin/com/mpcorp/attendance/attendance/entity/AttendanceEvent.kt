@@ -8,7 +8,11 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.Table
 import java.time.Instant
 
-/** One attendance punch (check-in or check-out). Multiple per day are allowed. */
+/**
+ * One attendance punch (check-in or check-out). Multiple per day are allowed.
+ * A null [challengeId] marks a system-generated event (e.g. the 23:59 auto
+ * check-out), which does not go through the challenge–response flow.
+ */
 @Entity
 @Table(name = "attendance_event")
 class AttendanceEvent(
@@ -26,10 +30,14 @@ class AttendanceEvent(
     @Column(name = "event_time", nullable = false)
     var eventTime: Instant,
 
-    @Column(name = "challenge_id", nullable = false)
-    var challengeId: Long,
+    @Column(name = "challenge_id")
+    var challengeId: Long? = null,
 
     @Column(name = "source_ip", length = 45)
     var sourceIp: String? = null,
+
+    /** Free-text shift-handover note, set once on the session's check-in then read-only. */
+    @Column(name = "note", length = 1000)
+    var note: String? = null,
 
 ) : BaseEntity()

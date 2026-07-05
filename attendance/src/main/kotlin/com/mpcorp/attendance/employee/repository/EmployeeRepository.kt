@@ -11,6 +11,10 @@ interface EmployeeRepository : JpaRepository<Employee, Long> {
 
     fun existsByEmployeeCode(employeeCode: String): Boolean
 
+    /** Resolves a set of officer codes (case-insensitive) to their employees — used by the report export. */
+    @Query("select e from Employee e where lower(e.employeeCode) in :codes")
+    fun findByEmployeeCodeLowerIn(@Param("codes") codes: Collection<String>): List<Employee>
+
     @Query(
         """
         select e from Employee e

@@ -50,4 +50,54 @@ interface AttendanceEventRepository : JpaRepository<AttendanceEvent, Long> {
         @Param("employeeId") employeeId: Long,
         @Param("from") from: Instant,
     ): List<AttendanceEvent>
+
+    /**
+     * The most recent punch for an employee at or after [from] (the start of the
+     * business day). Used to enforce check-in/check-out alternation.
+     */
+    fun findFirstByEmployeeIdAndEventTimeGreaterThanEqualOrderByEventTimeDesc(
+        employeeId: Long,
+        from: Instant,
+    ): AttendanceEvent?
+
+    /** All punches in the [start, end) window, oldest first — for the daily auto check-out sweep. */
+    @Query(
+        """
+        select a from AttendanceEvent a
+        where a.eventTime >= :start and a.eventTime < :end
+        order by a.employeeId asc, a.eventTime asc
+        """,
+    )
+    fun findBetween(
+        @Param("start") start: Instant,
+        @Param("end") end: Instant,
+    ): List<AttendanceEvent>
+
+    /** Every punch in the [from, to) window (all employees), newest first — for the Excel report. */
+    @Query(
+        """
+        select a from AttendanceEvent a
+        where a.eventTime >= :from and a.eventTime < :to
+        order by a.eventTime desc
+        """,
+    )
+    fun findForReport(
+        @Param("from") from: Instant,
+        @Param("to") to: Instant,
+    ): List<AttendanceEvent>
+
+    /** Punches in the [from, to) window restricted to [employeeIds], newest first — for the Excel report. */
+    @Query(
+        """
+        select a from AttendanceEvent a
+        where a.employeeId in :employeeIds
+          and a.eventTime >= :from and a.eventTime < :to
+        order by a.eventTime desc
+        """,
+    )
+    fun findForReportByEmployees(
+        @Param("employeeIds") employeeIds: Collection<Long>,
+        @Param("from") from: Instant,
+        @Param("to") to: Instant,
+    ): List<AttendanceEvent>
 }

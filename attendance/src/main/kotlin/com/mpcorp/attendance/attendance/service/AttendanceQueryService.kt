@@ -1,7 +1,9 @@
 package com.mpcorp.attendance.attendance.service
 
 import com.mpcorp.attendance.attendance.dto.AttendanceEventResponse
+import com.mpcorp.attendance.attendance.dto.AttendanceStatusResponse
 import com.mpcorp.attendance.attendance.dto.DailyHistoryResponse
+import com.mpcorp.attendance.attendance.dto.DailyPunchResponse
 import com.mpcorp.attendance.attendance.dto.DailySummaryResponse
 import com.mpcorp.attendance.attendance.entity.AttendanceEvent
 import com.mpcorp.attendance.attendance.entity.AttendanceType
@@ -51,9 +53,9 @@ class AttendanceQueryService(
         else employeeRepository.findAllById(ids.toSet()).associate { it.id!! to it.fullName }
 
     /**
-     * Per-day attendance for the employee owning [deviceId], most recent first,
-     * over the last [days] days. Each day reports the earliest punch (vào ca) and
-     * the latest punch (ra ca). Days with no events are omitted.
+     * Per-day attendance for the employee owning [deviceId], most recent day
+     * first, over the last [days] days. Each day carries every punch of that day
+     * in chronological order. Days with no events are omitted.
      */
     @Transactional(readOnly = true)
     fun deviceHistory(deviceId: Long, days: Int): List<DailyHistoryResponse> {
@@ -70,11 +72,40 @@ class AttendanceQueryService(
             .map { (date, dayEvents) ->
                 DailyHistoryResponse(
                     date = date,
-                    checkIn = dayEvents.minOf { it.eventTime },
-                    checkOut = dayEvents.maxOf { it.eventTime },
+                    punches = dayEvents
+                        .sortedBy { it.eventTime }
+                        .map {
+                            DailyPunchResponse(
+                                id = it.id!!,
+                                type = it.type,
+                                eventTime = it.eventTime,
+                                note = it.note,
+                            )
+                        },
                 )
             }
             .sortedByDescending { it.date }
+    }
+
+    /**
+     * The employee's current attendance state for today, derived from the last
+     * punch. Mirrors the alternation rule enforced on record so the device can
+     * grey out the button that would be rejected.
+     */
+    @Transactional(readOnly = true)
+    fun deviceStatus(deviceId: Long): AttendanceStatusResponse {
+        val device = deviceRepository.findById(deviceId)
+            .orElseThrow { ResourceNotFoundException("Device $deviceId not found") }
+        val startOfDay = LocalDate.now(clock.withZone(businessZone))
+            .atStartOfDay(businessZone)
+            .toInstant()
+        val last = attendanceEventRepository
+            .findFirstByEmployeeIdAndEventTimeGreaterThanEqualOrderByEventTimeDesc(device.employeeId, startOfDay)
+        return AttendanceStatusResponse(
+            openSession = last?.type == AttendanceType.CHECK_IN,
+            lastType = last?.type,
+            lastEventTime = last?.eventTime,
+        )
     }
 
     @Transactional(readOnly = true)

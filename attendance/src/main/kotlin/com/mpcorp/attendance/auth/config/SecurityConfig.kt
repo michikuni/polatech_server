@@ -49,6 +49,8 @@ class SecurityConfig(
             "/api/challenge",
             "/api/attendance",
             "/api/attendance/history",
+            "/api/attendance/status",
+            "/api/attendance/note",
         )
 
         // The portal is a single self-contained HTML page; the API calls it makes

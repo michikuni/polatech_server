@@ -39,6 +39,21 @@ class AttendanceQueryServiceTest {
 
     private fun event(type: AttendanceType, time: Instant) =
         AttendanceEvent(employeeId = 5L, deviceId = 3L, type = type, eventTime = time, challengeId = 1L)
+            .apply { id = time.toEpochMilli() }
+
+    private fun device() = Device(
+        employeeId = 5L,
+        publicKey = "pk",
+        publicKeyFingerprint = "fp",
+        platform = DevicePlatform.ANDROID,
+        enrolledAt = at(8, 0),
+    ).apply { id = 3L }
+
+    private fun givenLastPunch(event: AttendanceEvent?) {
+        given(deviceRepository.findById(3L)).willReturn(Optional.of(device()))
+        given(repository.findFirstByEmployeeIdAndEventTimeGreaterThanEqualOrderByEventTimeDesc(5L, start))
+            .willReturn(event)
+    }
 
     @Test
     fun `dailySummary sums worked time across in-out pairs`() {
@@ -85,15 +100,8 @@ class AttendanceQueryServiceTest {
     }
 
     @Test
-    fun `deviceHistory groups events per day with earliest and latest punch`() {
-        val device = Device(
-            employeeId = 5L,
-            publicKey = "pk",
-            publicKeyFingerprint = "fp",
-            platform = DevicePlatform.ANDROID,
-            enrolledAt = at(8, 0),
-        ).apply { id = 3L }
-        given(deviceRepository.findById(3L)).willReturn(Optional.of(device))
+    fun `deviceHistory groups every punch per day, newest day first`() {
+        given(deviceRepository.findById(3L)).willReturn(Optional.of(device()))
 
         // For a 30-day window anchored on the fixed clock (date), the service queries
         // events since the start of (date - 29 days) — stub that exact instant.
@@ -102,7 +110,10 @@ class AttendanceQueryServiceTest {
         given(repository.findSince(5L, expectedFrom)).willReturn(
             listOf(
                 event(AttendanceType.CHECK_IN, yesterday830),
+                // Today: four punches — every one should appear, in order.
                 event(AttendanceType.CHECK_IN, at(9, 0)),
+                event(AttendanceType.CHECK_OUT, at(12, 0)),
+                event(AttendanceType.CHECK_IN, at(13, 0)),
                 event(AttendanceType.CHECK_OUT, at(17, 0)),
             ),
         )
@@ -112,10 +123,50 @@ class AttendanceQueryServiceTest {
         // Most-recent day first.
         assertEquals(2, history.size)
         assertEquals(date, history[0].date)
-        assertEquals(at(9, 0), history[0].checkIn)
-        assertEquals(at(17, 0), history[0].checkOut)
+        assertEquals(
+            listOf(
+                AttendanceType.CHECK_IN to at(9, 0),
+                AttendanceType.CHECK_OUT to at(12, 0),
+                AttendanceType.CHECK_IN to at(13, 0),
+                AttendanceType.CHECK_OUT to at(17, 0),
+            ),
+            history[0].punches.map { it.type to it.eventTime },
+        )
         assertEquals(date.minusDays(1), history[1].date)
-        assertEquals(yesterday830, history[1].checkIn)
-        assertEquals(yesterday830, history[1].checkOut)
+        assertEquals(1, history[1].punches.size)
+        assertEquals(AttendanceType.CHECK_IN, history[1].punches.first().type)
+        assertEquals(yesterday830, history[1].punches.first().eventTime)
+    }
+
+    @Test
+    fun `deviceStatus reports an open session when the last punch is a check-in`() {
+        givenLastPunch(event(AttendanceType.CHECK_IN, at(9, 0)))
+
+        val status = service.deviceStatus(3L)
+
+        assertTrue(status.openSession)
+        assertEquals(AttendanceType.CHECK_IN, status.lastType)
+        assertEquals(at(9, 0), status.lastEventTime)
+    }
+
+    @Test
+    fun `deviceStatus reports closed when the last punch is a check-out`() {
+        givenLastPunch(event(AttendanceType.CHECK_OUT, at(17, 0)))
+
+        val status = service.deviceStatus(3L)
+
+        assertFalse(status.openSession)
+        assertEquals(AttendanceType.CHECK_OUT, status.lastType)
+    }
+
+    @Test
+    fun `deviceStatus reports closed with no punch today`() {
+        givenLastPunch(null)
+
+        val status = service.deviceStatus(3L)
+
+        assertFalse(status.openSession)
+        assertEquals(null, status.lastType)
+        assertEquals(null, status.lastEventTime)
     }
 }

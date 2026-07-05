@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Attendance — Admin Portal</title>
+<title>Polatteche — Admin Portal</title>
 <style>
   :root {
     --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
@@ -17,9 +17,6 @@
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header .spacer { flex: 1; }
   header .who { color: var(--muted); font-size: 13px; }
-  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); }
-  .pill.on { color: var(--ok); border-color: var(--ok); }
-  .pill.off { color: var(--muted); }
   main { max-width: 1100px; margin: 0 auto; padding: 18px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 18px; }
   .card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
@@ -50,6 +47,8 @@
   .tag.REVOKED { color: var(--muted); }
   .tag.yes { color: var(--ok); border-color: var(--ok); }
   .tag.no { color: var(--warn); border-color: var(--warn); }
+  .tag.checkin { color: var(--ok); border-color: var(--ok); }
+  .tag.checkout { color: var(--err); border-color: var(--err); }
   .toast { position: fixed; right: 18px; bottom: 18px; max-width: 380px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
   .toast div { background: var(--panel2); border: 1px solid var(--line); border-left-width: 4px; padding: 10px 14px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .2s ease; }
   .toast .ok { border-left-color: var(--ok); }
@@ -69,7 +68,6 @@
 <body>
 <header>
   <h1>🕒 Attendance — Admin Portal</h1>
-  <span id="hb" class="pill off">offline</span>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
   <button id="logoutBtn" class="ghost sm hide">Đăng xuất</button>
@@ -80,12 +78,10 @@
   <section id="loginView" class="card" style="max-width: 420px; margin: 60px auto;">
     <h2>Đăng nhập quản trị</h2>
     <div class="row" style="flex-direction: column; align-items: stretch;">
-      <div><label>API base URL</label><input id="apiBase" value="" placeholder="(để trống = cùng máy chủ)" style="width:100%"></div>
       <div><label>Tên đăng nhập</label><input id="username" value="admin" style="width:100%"></div>
       <div><label>Mật khẩu</label><input id="password" type="password" value="" style="width:100%" placeholder="Admin@123"></div>
       <button id="loginBtn" style="margin-top:6px">Đăng nhập</button>
     </div>
-    <p class="muted" style="font-size:12px;margin-bottom:0">Cần một admin đã tồn tại (tạo bằng biến môi trường <span class="mono">ADMIN_PASSWORD</span> khi khởi động).</p>
   </section>
 
   <!-- APP -->
@@ -132,7 +128,7 @@
         <div class="row" style="margin-bottom:12px">
           <div><label>Mã cán bộ</label><input id="d_emp" placeholder="VD: CB001 (để trống = tất cả)"></div>
           <div><label>Trạng thái</label>
-            <select id="d_status"><option value="">Tất cả</option><option value="ACTIVE">ACTIVE</option><option value="REVOKED">REVOKED</option></select>
+            <select id="d_status"><option value="">Tất cả</option><option value="ACTIVE">HOẠT ĐỘNG</option><option value="REVOKED">THU HỒI</option></select>
           </div>
           <button id="d_search" class="ghost">Lọc</button>
         </div>
@@ -157,13 +153,19 @@
         <div class="pager" id="a_pager"></div>
       </div>
       <div class="card">
-        <h2>Tổng kết theo ngày</h2>
+        <h2>Xuất báo cáo Excel</h2>
         <div class="row" style="margin-bottom:12px">
-          <div><label>Mã cán bộ *</label><input id="s_emp" placeholder="VD: CB001"></div>
-          <div><label>Ngày *</label><input id="s_date" type="date"></div>
-          <button id="s_go" class="ghost">Xem</button>
+          <div><label>Kỳ báo cáo</label>
+            <select id="r_period"><option value="DAY">Theo ngày</option><option value="WEEK">Theo tuần</option><option value="MONTH">Theo tháng</option></select>
+          </div>
+          <div><label>Ngày (mốc)</label><input id="r_date" type="date"></div>
+          <div><label>Phạm vi</label>
+            <select id="r_scope"><option value="all">Tất cả cán bộ</option><option value="some">Chọn cán bộ</option></select>
+          </div>
+          <div id="r_emp_wrap" class="hide"><label>Mã cán bộ</label><input id="r_emp" placeholder="VD: CB001, CB002"></div>
+          <button id="r_export">⬇ Xuất Excel</button>
         </div>
-        <div id="s_out" class="kv"></div>
+        <div class="muted" style="font-size:12px">Theo tuần: tuần (T2–CN) chứa ngày đã chọn. Theo tháng: cả tháng chứa ngày đã chọn.</div>
       </div>
     </div>
 
@@ -246,7 +248,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 // State + tiny helpers
 //==================================================================
 const S = {
-  base: localStorage.getItem('apiBase') || '',
   token: localStorage.getItem('token') || '',
   user: localStorage.getItem('user') || '',
 };
@@ -266,7 +267,7 @@ async function api(path, { method='GET', body, auth=true } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (auth && S.token) headers['Authorization'] = 'Bearer ' + S.token;
-  const res = await fetch(S.base + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   let json = null;
   try { json = await res.json(); } catch (_) {}
   if (!res.ok || (json && json.success === false)) {
@@ -282,8 +283,6 @@ async function api(path, { method='GET', body, auth=true } = {}) {
 // Auth
 //==================================================================
 async function doLogin() {
-  S.base = $('apiBase').value.trim().replace(/\/$/, '');
-  localStorage.setItem('apiBase', S.base);
   try {
     const data = await api('/api/auth/login', { method: 'POST', auth: false, body: { username: $('username').value, password: $('password').value } });
     S.token = data.accessToken; S.user = $('username').value;
@@ -297,18 +296,11 @@ function doLogout() {
   localStorage.removeItem('token'); localStorage.removeItem('user');
   $('appView').classList.add('hide'); $('loginView').classList.remove('hide');
   $('logoutBtn').classList.add('hide'); $('who').textContent = '';
-  setHeartbeat(false);
 }
 function showApp() {
   $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
   $('logoutBtn').classList.remove('hide'); $('who').textContent = '👤 ' + S.user;
-  setHeartbeat(true);
   loadEmployees();
-}
-function setHeartbeat(on) {
-  const hb = $('hb');
-  hb.textContent = on ? 'online' : 'offline';
-  hb.className = 'pill ' + (on ? 'on' : 'off');
 }
 
 //==================================================================
@@ -427,6 +419,7 @@ function showCode(empId, code, expiresAt) {
 //==================================================================
 // Devices
 //==================================================================
+const DEV_STATUS = { ACTIVE: 'HOẠT ĐỘNG', REVOKED: 'THU HỒI' };
 async function loadDevices(page = 0) {
   try {
     const empId = await resolveEmployeeId($('d_emp').value);
@@ -441,7 +434,7 @@ async function loadDevices(page = 0) {
     for (const d of data.items) {
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${d.id}</td><td>${esc(d.employeeName) || ('#'+d.employeeId)}</td><td>${esc(d.platform)}</td><td>${esc(d.deviceName)||'—'}</td>
-        <td><span class="tag ${esc(d.status)}">${esc(d.status)}</span></td>
+        <td><span class="tag ${esc(d.status)}">${DEV_STATUS[d.status] || esc(d.status)}</span></td>
         <td class="mono muted" title="${esc(d.publicKeyFingerprint)}">${esc((d.publicKeyFingerprint||'').slice(0,16))}…</td>
         <td class="muted">${fmt(d.enrolledAt)}</td><td class="muted">${fmt(d.lastUsedAt)}</td><td></td>`;
       if (d.status === 'ACTIVE') tr.lastElementChild.append(btn('Thu hồi', 'sm danger', () => revokeDevice(d.id)));
@@ -459,6 +452,11 @@ async function revokeDevice(id) {
 //==================================================================
 // Attendance
 //==================================================================
+function attTag(type) {
+  if (type === 'CHECK_IN') return '<span class="tag checkin">Vào ca</span>';
+  if (type === 'CHECK_OUT') return '<span class="tag checkout">Ra ca</span>';
+  return `<span class="tag">${esc(type)}</span>`;
+}
 async function loadAttendance(page = 0) {
   try {
     const empId = await resolveEmployeeId($('a_emp').value);
@@ -471,28 +469,41 @@ async function loadAttendance(page = 0) {
     const tb = $('a_rows'); tb.innerHTML = '';
     if (!data.items.length) tb.innerHTML = '<tr><td colspan="5" class="empty">Không có sự kiện</td></tr>';
     for (const a of data.items) tb.insertAdjacentHTML('beforeend',
-      `<tr><td>${a.id}</td><td>${esc(a.employeeName) || ('#'+a.employeeId)}</td><td>${a.deviceId}</td><td><span class="tag">${esc(a.type)}</span></td><td>${fmt(a.eventTime)}</td></tr>`);
+      `<tr><td>${a.id}</td><td>${esc(a.employeeName) || ('#'+a.employeeId)}</td><td>${a.deviceId}</td><td>${attTag(a.type)}</td><td>${fmt(a.eventTime)}</td></tr>`);
     pager($('a_pager'), data, loadAttendance);
   } catch (e) { toast(e.message, 'err'); }
 }
-async function dailySummary() {
-  const code = $('s_emp').value.trim();
-  if (!code || !$('s_date').value) return toast('Cần mã cán bộ và ngày', 'err');
-  try {
-    const empId = await resolveEmployeeId(code);
-    if (empId == null) return toast('Không tìm thấy cán bộ với mã này', 'err');
-    const d = await api('/api/admin/attendance/daily-summary' + qs({ employeeId: empId, date: $('s_date').value }));
-    const h = Math.floor(d.workedSeconds / 3600), m = Math.floor((d.workedSeconds % 3600) / 60);
-    $('s_out').innerHTML = `
-      <div><b>Cán bộ</b>${esc(code)} — ngày ${esc(d.date)}</div>
-      <div><b>Thời gian làm</b>${h}h ${m}m (${d.workedSeconds}s)</div>
-      <div><b>Check-in đầu</b>${fmt(d.firstCheckIn)}</div>
-      <div><b>Check-out cuối</b>${fmt(d.lastCheckOut)}</div>
-      <div><b>Số lần in/out</b>${d.checkInCount} / ${d.checkOutCount}</div>
-      <div><b>Phiên đang mở</b><span class="tag ${d.openSession?'no':'yes'}">${d.openSession?'CÓ (chưa out)':'KHÔNG'}</span></div>`;
-  } catch (e) { toast(e.message, 'err'); $('s_out').innerHTML = ''; }
-}
 
+// Downloads the attendance Excel report. Uses fetch (not a plain link) so the
+// admin JWT rides in the Authorization header, then saves the blob response.
+async function exportReport() {
+  const scope = $('r_scope').value;
+  const date = $('r_date').value;
+  if (!date) return toast('Chọn ngày mốc cho báo cáo', 'err');
+  const codes = scope === 'some' ? $('r_emp').value.trim() : '';
+  if (scope === 'some' && !codes) return toast('Nhập mã cán bộ cần xuất', 'err');
+  const btn = $('r_export'); btn.disabled = true;
+  try {
+    const url = '/api/admin/attendance/report' + qs({ period: $('r_period').value, date, employeeCodes: codes });
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + S.token } });
+    if (!res.ok) {
+      if (res.status === 401) { doLogout(); throw new Error('Phiên đã hết hạn'); }
+      let msg = `HTTP ${res.status}`;
+      try { const j = await res.json(); if (j && j.error) msg = `${j.error.code}: ${j.error.message}`; } catch (_) {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const name = m ? m[1] : 'bao-cao-cham-cong.xlsx';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    toast('Đã xuất báo cáo Excel');
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; }
+}
 //==================================================================
 // Audit
 //==================================================================
@@ -602,7 +613,9 @@ $('e_create').onclick = createEmployee;
 $('e_search').onclick = () => loadEmployees(0);
 $('d_search').onclick = () => loadDevices(0);
 $('a_search').onclick = () => loadAttendance(0);
-$('s_go').onclick = dailySummary;
+$('r_scope').onchange = () => $('r_emp_wrap').classList.toggle('hide', $('r_scope').value !== 'some');
+$('r_export').onclick = exportReport;
+$('r_date').value = new Date().toISOString().slice(0, 10); // default the report anchor to today
 $('au_search').onclick = () => loadAudit(0);
 $('sim_gen').onclick = simGen;
 $('sim_clear').onclick = simClear;
@@ -610,8 +623,7 @@ $('sim_enroll').onclick = simEnroll;
 $('sim_in').onclick = () => simAttend('CHECK_IN');
 $('sim_out').onclick = () => simAttend('CHECK_OUT');
 
-$('apiBase').value = S.base;
-if (S.token) { showApp(); } else { setHeartbeat(false); }
+if (S.token) showApp();
 simLoadKey();
 </script>
 </body>
