@@ -10,6 +10,9 @@ import java.time.Instant
 
 interface AttendanceEventRepository : JpaRepository<AttendanceEvent, Long> {
 
+    /** True if the employee has any recorded punch — guards employee deletion. */
+    fun existsByEmployeeId(employeeId: Long): Boolean
+
     @Query(
         """
         select a from AttendanceEvent a

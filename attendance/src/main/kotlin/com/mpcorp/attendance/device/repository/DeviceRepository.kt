@@ -12,6 +12,9 @@ interface DeviceRepository : JpaRepository<Device, Long> {
 
     fun findByEmployeeIdAndStatus(employeeId: Long, status: DeviceStatus): List<Device>
 
+    /** True if any device (of any status) is tied to this employee — guards employee deletion. */
+    fun existsByEmployeeId(employeeId: Long): Boolean
+
     @Query(
         """
         select d from Device d

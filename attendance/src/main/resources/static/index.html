@@ -63,6 +63,10 @@
   fieldset { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; margin: 0 0 12px; }
   legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
   .empty { color: var(--muted); padding: 16px; text-align: center; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(2,6,23,.7); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 18px; animation: in .15s ease; }
+  .modal { width: 100%; max-width: 420px; margin: 0; max-height: 90vh; overflow: auto; }
+  .modal .col { display: flex; flex-direction: column; gap: 10px; }
+  input:disabled { opacity: .6; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -356,8 +360,10 @@ async function loadEmployees(page = 0) {
         <td><span class="tag ${e.active?'yes':'no'}">${e.active?'CÓ':'KHÔNG'}</span></td><td></td>`;
       const td = tr.lastElementChild;
       const issue = btn('🔑 Cấp mã', 'sm', () => issueCode(e.id));
+      const edit = btn('✏️ Sửa', 'sm ghost', () => editEmployee(e));
       const toggle = btn(e.active ? 'Ngừng' : 'Bật', 'sm ghost', () => setActive(e.id, !e.active));
-      td.append(issue, ' ', toggle);
+      const del = btn('🗑 Xoá', 'sm danger', () => deleteEmployee(e.id, e.employeeCode));
+      td.append(issue, ' ', edit, ' ', toggle, ' ', del);
       tb.appendChild(tr);
     }
     pager($('e_pager'), data, loadEmployees);
@@ -373,6 +379,42 @@ async function createEmployee() {
 }
 async function setActive(id, active) {
   try { await api(`/api/admin/employees/${id}/active`, { method: 'PATCH', body: { active } }); toast('Đã cập nhật'); loadEmployees(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+// Opens an edit dialog pre-filled with the officer's mutable fields. Mã cán bộ
+// (employeeCode) is immutable server-side, so it is shown read-only.
+function editEmployee(e) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `<div class="modal card" role="dialog" aria-modal="true">
+      <h2>Sửa thông tin cán bộ</h2>
+      <div class="col">
+        <div><label>Mã cán bộ</label><input value="${esc(e.employeeCode)}" disabled style="width:100%"></div>
+        <div><label>Họ và tên *</label><input id="ed_name" value="${esc(e.fullName)}" style="width:100%"></div>
+        <div><label>Chức vụ *</label><input id="ed_position" value="${esc(e.position)}" style="width:100%"></div>
+        <div><label>Cấp bậc *</label><input id="ed_rank" value="${esc(e.rank)}" style="width:100%"></div>
+      </div>
+      <div class="row" style="margin-top:16px;justify-content:flex-end">
+        <button id="ed_cancel" class="ghost">Huỷ</button>
+        <button id="ed_save">Lưu</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', ev => { if (ev.target === backdrop) close(); });
+  backdrop.addEventListener('keydown', ev => { if (ev.key === 'Escape') close(); });
+  $('ed_cancel').onclick = close;
+  $('ed_save').onclick = async () => {
+    const body = { fullName: $('ed_name').value.trim(), position: $('ed_position').value.trim(), rank: $('ed_rank').value.trim() };
+    if (!body.fullName || !body.position || !body.rank) return toast('Họ tên, chức vụ và cấp bậc là bắt buộc', 'err');
+    try { await api(`/api/admin/employees/${e.id}`, { method: 'PUT', body }); toast('Đã cập nhật cán bộ'); close(); loadEmployees(); }
+    catch (err) { toast(err.message, 'err'); }
+  };
+  $('ed_name').focus();
+}
+async function deleteEmployee(id, code) {
+  if (!confirm(`Xoá cán bộ ${code} (#${id})?\nChỉ xoá được khi cán bộ chưa có thiết bị và chưa có lịch sử chấm công. Nếu đã có, hãy dùng "Ngừng".`)) return;
+  try { await api(`/api/admin/employees/${id}`, { method: 'DELETE' }); toast('Đã xoá cán bộ'); loadEmployees(); }
   catch (e) { toast(e.message, 'err'); }
 }
 async function issueCode(id) {
@@ -507,7 +549,7 @@ async function exportReport() {
 //==================================================================
 // Audit
 //==================================================================
-const AUDIT_ACTIONS = ['ADMIN_LOGIN','EMPLOYEE_CREATED','EMPLOYEE_UPDATED','EMPLOYEE_ACTIVE_CHANGED','ENROLL_CODE_ISSUED','DEVICE_ENROLLED','DEVICE_REVOKED','ATTENDANCE_RECORDED','SIGNATURE_VERIFY_FAILED'];
+const AUDIT_ACTIONS = ['ADMIN_LOGIN','EMPLOYEE_CREATED','EMPLOYEE_UPDATED','EMPLOYEE_ACTIVE_CHANGED','EMPLOYEE_DELETED','ENROLL_CODE_ISSUED','DEVICE_ENROLLED','DEVICE_REVOKED','ATTENDANCE_RECORDED','SIGNATURE_VERIFY_FAILED'];
 AUDIT_ACTIONS.forEach(a => $('au_action').insertAdjacentHTML('beforeend', `<option>${a}</option>`));
 async function loadAudit(page = 0) {
   try {
