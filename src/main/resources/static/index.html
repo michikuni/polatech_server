@@ -54,7 +54,15 @@
   .toast .ok { border-left-color: var(--ok); }
   .toast .err { border-left-color: var(--err); }
   @keyframes in { from { transform: translateY(8px); opacity: 0; } }
-  .codebox { font-family: "Cascadia Code", Consolas, monospace; font-size: 26px; letter-spacing: 4px; background: #04293a; color: var(--accent); padding: 14px 18px; border-radius: 10px; display: inline-block; border: 1px solid var(--accent2); }
+  /* Pairing-code dialog. Sized in viewport units so its buttons stay reachable on
+     a short screen: the box never exceeds the viewport and scrolls inside itself
+     instead of pushing its footer off-screen. (Distinct from .modal below, which
+     is the employee-edit dialog.) */
+  .code-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 3vh 3vw; background: rgba(2,6,23,.7); }
+  .code-modal-box { background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .2s ease;
+    width: min(380px, 100%); max-height: 94vh; overflow-y: auto; padding: clamp(14px, 3vh, 22px); text-align: center; }
+  .code-modal-box img.qr { width: min(190px, 34vh); height: auto; display: block; }
+  .codebox { font-family: "Cascadia Code", Consolas, monospace; font-size: clamp(17px, 5vw, 26px); letter-spacing: 4px; background: #04293a; color: var(--accent); padding: clamp(8px, 1.6vh, 14px) 18px; border-radius: 10px; display: inline-block; border: 1px solid var(--accent2); max-width: 100%; overflow-wrap: anywhere; }
   .pager { display: flex; gap: 10px; align-items: center; margin-top: 12px; color: var(--muted); }
   .hide { display: none !important; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -95,6 +103,7 @@
       <button data-tab="devices">Thiết bị</button>
       <button data-tab="attendance">Chấm công</button>
       <button data-tab="audit">Nhật ký</button>
+      <button data-tab="server">🖥 Máy chủ</button>
       <button data-tab="simulator">📱 Giả lập thiết bị</button>
     </nav>
 
@@ -187,6 +196,31 @@
         <table><thead><tr><th>Thời điểm</th><th>Actor</th><th>Hành động</th><th>Actor ID</th><th>Đối tượng</th><th>Chi tiết</th><th>IP</th></tr></thead>
           <tbody id="au_rows"></tbody></table>
         <div class="pager" id="au_pager"></div>
+      </div>
+    </div>
+
+    <!-- SERVER ADDRESS -->
+    <div data-pane="server" class="hide">
+      <div class="card">
+        <h2>🖥 Địa chỉ máy chủ &amp; QR kết nối</h2>
+        <p class="muted" style="font-size:13px;margin-top:0">
+          Máy chủ tự dò các địa chỉ IP của mình trong mạng LAN. Chọn địa chỉ mà điện thoại của cán bộ nhìn thấy được —
+          địa chỉ này được nhúng vào <b>mọi QR</b> (QR kết nối bên dưới và QR cấp mã ghép cặp).
+          Nếu máy chủ đổi IP sau khi khởi động lại, cán bộ chỉ cần mở app → <b>Đổi máy chủ</b> → quét QR bên dưới, <b>không cần cấp lại mã ghép cặp</b>.
+        </p>
+        <div class="row" style="margin-bottom:12px">
+          <div>
+            <label>Địa chỉ máy chủ (tự dò)</label>
+            <select id="sv_pick" style="min-width:260px"></select>
+          </div>
+          <div>
+            <label>Hoặc nhập thủ công</label>
+            <input id="sv_custom" style="min-width:240px" placeholder="http://192.168.1.10:8080">
+          </div>
+          <button id="sv_reload" class="ghost">Dò lại</button>
+        </div>
+        <div id="sv_warn" class="muted" style="font-size:12px;margin-bottom:12px"></div>
+        <div id="sv_qr" style="text-align:center"></div>
       </div>
     </div>
 
@@ -305,6 +339,9 @@ function showApp() {
   $('loginView').classList.add('hide'); $('appView').classList.remove('hide');
   $('logoutBtn').classList.remove('hide'); $('who').textContent = '👤 ' + S.user;
   loadEmployees();
+  // Fetch the server's own LAN addresses up front so the first pairing QR
+  // already carries a working address, without the admin visiting any tab.
+  loadServerInfo();
 }
 
 //==================================================================
@@ -316,7 +353,7 @@ $('tabs').addEventListener('click', (e) => {
   b.classList.add('active');
   const tab = b.dataset.tab;
   document.querySelectorAll('[data-pane]').forEach(p => p.classList.toggle('hide', p.dataset.pane !== tab));
-  ({ employees: loadEmployees, devices: loadDevices, attendance: loadAttendance, audit: loadAudit, simulator: simRefresh })[tab]?.();
+  ({ employees: loadEmployees, devices: loadDevices, attendance: loadAttendance, audit: loadAudit, server: loadServer, simulator: simRefresh })[tab]?.();
 });
 
 function pager(el, page, loader) {
@@ -435,24 +472,123 @@ function qrDataUrl(text) {
     return qr.createDataURL(6, 4); // 6px modules, 4-module quiet zone
   } catch (_) { return null; }
 }
-function showCode(empId, code, expiresAt) {
-  const wrap = document.createElement('div'); wrap.className = 'toast'; wrap.style.cssText = 'left:50%;top:22%;right:auto;bottom:auto;transform:translateX(-50%)';
-  const box = document.createElement('div'); box.className = 'ok'; box.style.cssText = 'text-align:center;padding:22px;max-width:340px';
-  const url = qrDataUrl(code);
-  const qrHtml = url
-    ? `<div style="background:#fff;padding:10px;border-radius:10px;display:inline-block;margin-bottom:6px">
-         <img alt="QR mã ghép cặp" width="180" height="180" style="display:block;image-rendering:pixelated" src="${url}">
+
+//------------------------------------------------------------------
+// Server address & QRs
+//
+// The server discovers its own LAN IPs (GET /api/admin/server-info); the admin
+// picks one and every QR embeds it. Two QR shapes, both parsed by the app:
+//   { url, code } — connect + pair in one scan (first-time enrollment)
+//   { url }       — connect only: an already-paired phone follows the server to
+//                   a new IP via "Đổi máy chủ", with no new pairing code needed.
+//------------------------------------------------------------------
+const DEVICE_URL_KEY = 'device_server_url';
+
+/** The address phones should call: the admin's pick, else the best address the
+ *  server reported, else the origin this portal was opened on. */
+function deviceServerUrl() {
+  const best = S.serverAddresses && S.serverAddresses[0] && S.serverAddresses[0].baseUrl;
+  return localStorage.getItem(DEVICE_URL_KEY) || best || location.origin;
+}
+function setDeviceServerUrl(v) {
+  const u = (v || '').trim().replace(/\/+$/, '');
+  if (u) localStorage.setItem(DEVICE_URL_KEY, u); else localStorage.removeItem(DEVICE_URL_KEY);
+}
+/** True for addresses that only resolve on the server machine itself. */
+function isLoopback(url) {
+  try {
+    const h = new URL(url).hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+  } catch (_) { return true; } // unparseable -> warn rather than hand out a broken QR
+}
+/** The payload the app parses. [code] omitted => a connect-only QR. */
+function pairingPayload(url, code) {
+  const p = { url: (url || '').trim().replace(/\/+$/, '') };
+  if (code) p.code = code;
+  return JSON.stringify(p);
+}
+
+/** Asks the server which addresses it answers on; failure is non-fatal (the
+ *  portal then falls back to its own origin). */
+async function loadServerInfo() {
+  try {
+    const d = await api('/api/admin/server-info');
+    S.serverAddresses = d.addresses || [];
+  } catch (_) {
+    S.serverAddresses = [];
+  }
+}
+
+//------------------------------------------------------------------
+// Server tab: pick the address, show the connect-only QR
+//------------------------------------------------------------------
+async function loadServer(reload = false) {
+  if (reload || !S.serverAddresses) await loadServerInfo();
+  const current = deviceServerUrl();
+  // The adapter name is shown because a server box often also has virtual
+  // adapters (VMware/Hyper-V) whose private IPs no phone can reach.
+  const found = (S.serverAddresses || []).map(a => ({ url: a.baseUrl, label: `${a.baseUrl} — ${a.interfaceName}` }));
+  if (!found.some(o => o.url === current)) found.push({ url: current, label: `${current} — (đang dùng)` });
+  $('sv_pick').innerHTML = found.length
+    ? found.map(o => `<option value="${esc(o.url)}" ${o.url === current ? 'selected' : ''}>${esc(o.label)}</option>`).join('')
+    : '<option value="">(không dò được địa chỉ nào)</option>';
+  renderServerQr();
+}
+function renderServerQr() {
+  const url = deviceServerUrl();
+  const img = qrDataUrl(pairingPayload(url));
+  $('sv_qr').innerHTML = img
+    ? `<div style="background:#fff;padding:12px;border-radius:12px;display:inline-block">
+         <img alt="QR địa chỉ máy chủ" width="220" height="220" style="display:block;image-rendering:pixelated" src="${img}">
        </div>
-       <div class="muted" style="font-size:12px;margin-bottom:12px">Quét QR bằng app để tự điền mã</div>`
+       <div class="muted" style="font-size:12px;margin-top:8px">QR kết nối máy chủ — <span class="mono">${esc(url)}</span></div>
+       <div class="muted" style="font-size:12px">Cán bộ: mở app → <b>Đổi máy chủ</b> → quét QR này. Máy đã ghép cặp vẫn giữ nguyên khoá, không cần cấp mã mới.</div>`
+    : '<div class="muted">Không tạo được QR.</div>';
+  const warn = $('sv_warn');
+  if (isLoopback(url)) {
+    warn.textContent = '⚠ Địa chỉ đang chọn chỉ chạy được trên chính máy chủ — điện thoại sẽ không kết nối được. Hãy chọn một IP LAN (ví dụ 192.168.x.x).';
+    warn.style.color = 'var(--err)';
+  } else {
+    warn.textContent = 'Địa chỉ này được nhúng vào mọi QR và được ghi nhớ trên trình duyệt của bạn.';
+    warn.style.color = 'var(--muted)';
+  }
+}
+$('sv_pick').addEventListener('change', () => { setDeviceServerUrl($('sv_pick').value); $('sv_custom').value = ''; renderServerQr(); });
+$('sv_custom').addEventListener('input', () => {
+  const v = $('sv_custom').value.trim();
+  if (v) { setDeviceServerUrl(v); renderServerQr(); }
+});
+$('sv_reload').addEventListener('click', () => loadServer(true));
+
+//------------------------------------------------------------------
+// Pairing-code modal: QR carries the chosen address + the one-time code
+//------------------------------------------------------------------
+function showCode(empId, code, expiresAt) {
+  const url = deviceServerUrl();
+  const wrap = document.createElement('div'); wrap.className = 'code-modal';
+  const box = document.createElement('div'); box.className = 'code-modal-box';
+  const img = qrDataUrl(pairingPayload(url, code));
+  const qrHtml = img
+    ? `<div style="background:#fff;padding:8px;border-radius:10px;display:inline-block;margin-bottom:6px">
+         <img class="qr" alt="QR ghép cặp" style="image-rendering:pixelated" src="${img}">
+       </div>
+       <div class="muted" style="font-size:12px;margin-bottom:10px">Cán bộ quét QR này — app tự nhập mã</div>`
+    : '<div class="muted" style="font-size:12px;margin-bottom:10px">Không tạo được QR — hãy đọc mã bên dưới cho cán bộ nhập tay</div>';
+  // A loopback address still warrants a shout — that QR cannot work on a phone.
+  // Any other address needs no note here; it is shown on the Máy chủ tab.
+  const warnHtml = isLoopback(url)
+    ? `<div style="color:var(--err);font-size:11px;margin-top:8px">⚠ QR đang trỏ tới <span class="mono">${esc(url)}</span> — điện thoại không gọi được địa chỉ này. Hãy sang tab <b>🖥 Máy chủ</b> chọn IP LAN rồi cấp lại mã.</div>`
     : '';
   box.innerHTML = `<div class="muted" style="margin-bottom:10px">Mã ghép cặp cho cán bộ #${empId}</div>
     ${qrHtml}
     <div class="codebox">${esc(code)}</div>
+    ${warnHtml}
     <div class="muted" id="cd" style="margin:12px 0"></div>`;
-  const copy = btn('Sao chép', 'sm', () => { navigator.clipboard.writeText(code); toast('Đã sao chép'); });
+  const copy = btn('Sao chép mã', 'sm', () => { navigator.clipboard.writeText(code); toast('Đã sao chép'); });
   const useSim = btn('Dùng ở Giả lập', 'sm ghost', () => { $('sim_code').value = code; document.querySelector('[data-tab=simulator]').click(); wrap.remove(); });
   const close = btn('Đóng', 'sm ghost', () => wrap.remove());
   box.append(copy, ' ', useSim, ' ', close); wrap.appendChild(box); document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); }); // bấm ra ngoài để đóng
   const exp = new Date(expiresAt).getTime();
   const tick = () => { const s = Math.round((exp - Date.now()) / 1000); const el = box.querySelector('#cd'); if (!el) return; if (s <= 0) { el.textContent = 'ĐÃ HẾT HẠN'; el.style.color = 'var(--err)'; return; } el.textContent = `Hết hạn sau ${s}s`; setTimeout(tick, 1000); };
   tick();
