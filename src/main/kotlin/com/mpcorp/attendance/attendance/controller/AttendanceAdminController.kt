@@ -28,14 +28,16 @@ class AttendanceAdminController(
     private val attendanceReportService: AttendanceReportService,
 ) {
 
+    /** [hasNote] narrows to punches that carry a shift-handover note; omit for all. */
     @GetMapping
     fun list(
         @RequestParam(required = false) employeeId: Long?,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) fromDate: LocalDate?,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) toDate: LocalDate?,
+        @RequestParam(required = false) hasNote: Boolean?,
         @PageableDefault(size = 20) pageable: Pageable,
     ): ResponseEntity<ApiResponse<PageResponse<AttendanceEventResponse>>> =
-        ResponseEntity.ok(ApiResponse.ok(attendanceQueryService.list(employeeId, fromDate, toDate, pageable)))
+        ResponseEntity.ok(ApiResponse.ok(attendanceQueryService.list(employeeId, fromDate, toDate, hasNote, pageable)))
 
     @GetMapping("/daily-summary")
     fun dailySummary(

@@ -10,4 +10,6 @@ data class AttendanceEventResponse(
     val deviceId: Long,
     val type: AttendanceType,
     val eventTime: Instant,
+    /** Shift-handover note (Thông tin ca trực); only ever set on a check-in. */
+    val note: String?,
 )

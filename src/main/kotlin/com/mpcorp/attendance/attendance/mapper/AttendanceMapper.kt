@@ -14,5 +14,6 @@ class AttendanceMapper {
         deviceId = event.deviceId,
         type = event.type,
         eventTime = event.eventTime,
+        note = event.note,
     )
 }

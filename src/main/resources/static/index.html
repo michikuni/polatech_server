@@ -75,6 +75,12 @@
   .modal { width: 100%; max-width: 420px; margin: 0; max-height: 90vh; overflow: auto; }
   .modal .col { display: flex; flex-direction: column; gap: 10px; }
   input:disabled { opacity: .6; cursor: not-allowed; }
+  /* Shift-handover note in the attendance table: one clipped line that opens the
+     full text in a dialog, so a long note cannot stretch the row. */
+  .note-cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  .note-link { color: var(--accent); cursor: pointer; border-bottom: 1px dotted var(--accent); }
+  .note-full { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 45vh; overflow: auto; }
 </style>
 </head>
 <body>
@@ -159,9 +165,12 @@
           <div><label>Mã cán bộ</label><input id="a_emp" placeholder="VD: CB001 (để trống = tất cả)"></div>
           <div><label>Từ ngày</label><input id="a_from" type="date"></div>
           <div><label>Đến ngày</label><input id="a_to" type="date"></div>
+          <div><label>Thông tin ca trực</label>
+            <select id="a_note"><option value="">Tất cả</option><option value="true">Chỉ lượt có ghi chú</option><option value="false">Chỉ lượt chưa ghi chú</option></select>
+          </div>
           <button id="a_search" class="ghost">Lọc</button>
         </div>
-        <table><thead><tr><th>ID</th><th>Cán bộ</th><th>Thiết bị</th><th>Loại</th><th>Thời điểm</th></tr></thead>
+        <table><thead><tr><th>ID</th><th>Cán bộ</th><th>Thiết bị</th><th>Loại</th><th>Thời điểm</th><th>Thông tin ca trực</th></tr></thead>
           <tbody id="a_rows"></tbody></table>
         <div class="pager" id="a_pager"></div>
       </div>
@@ -635,22 +644,73 @@ function attTag(type) {
   if (type === 'CHECK_OUT') return '<span class="tag checkout">Ra ca</span>';
   return `<span class="tag">${esc(type)}</span>`;
 }
+// The shift-handover note (thông tin ca trực) is free text up to 1000 chars and
+// may hold newlines, so the cell shows a single clipped line and defers the full
+// text to a dialog. Events keyed by id back that dialog, avoiding the escaping
+// mess of stuffing the note itself into a data attribute.
+const NOTE_PREVIEW_CHARS = 60;
+function noteCellHtml(a) {
+  if (!a.note) return '<span class="muted">—</span>';
+  const line = a.note.replace(/\s+/g, ' ').trim();
+  const short = line.length > NOTE_PREVIEW_CHARS ? line.slice(0, NOTE_PREVIEW_CHARS) + '…' : line;
+  return `<span class="note-link" data-note="${a.id}" title="Bấm để xem đầy đủ">${esc(short)}</span>`;
+}
+
+/** Read-only dialog with the full handover note and the punch it belongs to. */
+function showShiftNote(a) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `<div class="modal card" role="dialog" aria-modal="true">
+      <h2>Thông tin ca trực</h2>
+      <div class="kv" style="margin-bottom:12px">
+        <div><b>Cán bộ</b>${esc(a.employeeName) || ('#' + a.employeeId)}</div>
+        <div><b>Loại</b>${attTag(a.type)}</div>
+        <div><b>Thời điểm</b>${fmt(a.eventTime)}</div>
+        <div><b>Thiết bị</b>#${a.deviceId}</div>
+      </div>
+      <pre class="note-full">${esc(a.note)}</pre>
+      <div class="row" style="margin-top:16px;justify-content:flex-end">
+        <button id="nt_copy" class="ghost">Sao chép</button>
+        <button id="nt_close">Đóng</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+  const close = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey);
+  backdrop.addEventListener('click', ev => { if (ev.target === backdrop) close(); });
+  $('nt_close').onclick = close;
+  $('nt_copy').onclick = () => { navigator.clipboard.writeText(a.note); toast('Đã sao chép ghi chú'); };
+  $('nt_close').focus();
+}
+
 async function loadAttendance(page = 0) {
   try {
     const empId = await resolveEmployeeId($('a_emp').value);
     if (empId === null) {
-      $('a_rows').innerHTML = '<tr><td colspan="5" class="empty">Không tìm thấy cán bộ với mã này</td></tr>';
+      $('a_rows').innerHTML = '<tr><td colspan="6" class="empty">Không tìm thấy cán bộ với mã này</td></tr>';
       $('a_pager').innerHTML = '';
       return;
     }
-    const data = await api('/api/admin/attendance' + qs({ employeeId: empId, fromDate: $('a_from').value, toDate: $('a_to').value, page, size: 15 }));
+    const data = await api('/api/admin/attendance' + qs({ employeeId: empId, fromDate: $('a_from').value, toDate: $('a_to').value, hasNote: $('a_note').value, page, size: 15 }));
     const tb = $('a_rows'); tb.innerHTML = '';
-    if (!data.items.length) tb.innerHTML = '<tr><td colspan="5" class="empty">Không có sự kiện</td></tr>';
-    for (const a of data.items) tb.insertAdjacentHTML('beforeend',
-      `<tr><td>${a.id}</td><td>${esc(a.employeeName) || ('#'+a.employeeId)}</td><td>${a.deviceId}</td><td>${attTag(a.type)}</td><td>${fmt(a.eventTime)}</td></tr>`);
+    S.attEvents = new Map();
+    if (!data.items.length) tb.innerHTML = '<tr><td colspan="6" class="empty">Không có sự kiện</td></tr>';
+    for (const a of data.items) {
+      S.attEvents.set(a.id, a);
+      tb.insertAdjacentHTML('beforeend',
+        `<tr><td>${a.id}</td><td>${esc(a.employeeName) || ('#'+a.employeeId)}</td><td>${a.deviceId}</td><td>${attTag(a.type)}</td><td>${fmt(a.eventTime)}</td>
+         <td class="note-cell">${noteCellHtml(a)}</td></tr>`);
+    }
     pager($('a_pager'), data, loadAttendance);
   } catch (e) { toast(e.message, 'err'); }
 }
+$('a_rows').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-note]');
+  if (!el) return;
+  const a = S.attEvents && S.attEvents.get(Number(el.dataset.note));
+  if (a) showShiftNote(a);
+});
 
 // Downloads the attendance Excel report. Uses fetch (not a plain link) so the
 // admin JWT rides in the Authorization header, then saves the blob response.

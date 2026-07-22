@@ -13,12 +13,20 @@ interface AttendanceEventRepository : JpaRepository<AttendanceEvent, Long> {
     /** True if the employee has any recorded punch — guards employee deletion. */
     fun existsByEmployeeId(employeeId: Long): Boolean
 
+    /**
+     * Admin event search. [hasNote] filters on the shift-handover note: true keeps
+     * only punches carrying one (in practice check-ins), false only those without,
+     * null (the default) keeps every punch.
+     */
     @Query(
         """
         select a from AttendanceEvent a
         where (:employeeId is null or a.employeeId = :employeeId)
           and (:from is null or a.eventTime >= :from)
           and (:to is null or a.eventTime < :to)
+          and (:hasNote is null
+               or (:hasNote = true and a.note is not null and a.note <> '')
+               or (:hasNote = false and (a.note is null or a.note = '')))
         order by a.eventTime desc
         """,
     )
@@ -26,6 +34,7 @@ interface AttendanceEventRepository : JpaRepository<AttendanceEvent, Long> {
         @Param("employeeId") employeeId: Long?,
         @Param("from") from: Instant?,
         @Param("to") to: Instant?,
+        @Param("hasNote") hasNote: Boolean?,
         pageable: Pageable,
     ): Page<AttendanceEvent>
 

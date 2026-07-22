@@ -37,11 +37,12 @@ class AttendanceQueryService(
         employeeId: Long?,
         fromDate: LocalDate?,
         toDate: LocalDate?,
+        hasNote: Boolean?,
         pageable: Pageable,
     ): PageResponse<AttendanceEventResponse> {
         val from = fromDate?.atStartOfDay(businessZone)?.toInstant()
         val to = toDate?.plusDays(1)?.atStartOfDay(businessZone)?.toInstant()
-        val events = attendanceEventRepository.search(employeeId, from, to, pageable)
+        val events = attendanceEventRepository.search(employeeId, from, to, hasNote, pageable)
         val names = employeeNames(events.content.map { it.employeeId })
         val page = events.map { attendanceMapper.toResponse(it, names[it.employeeId]) }
         return PageResponse.from(page)
